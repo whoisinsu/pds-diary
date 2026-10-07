@@ -1,0 +1,15 @@
+{
+  "name": "pds-diary",
+  "private": true,
+  "version": "1.0.0",
+  "description": "플랜두씨 다이어리 — 계획 → 실제로 한 일 → 돌아보기",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply pds-diary --local",
+    "db:migrate:remote": "wrangler d1 migrations apply pds-diary --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

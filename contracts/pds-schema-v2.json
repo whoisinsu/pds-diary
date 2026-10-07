@@ -1,0 +1,126 @@
+{
+  "schema": "pds-schema-v2",
+  "database": "Cloudflare D1 (SQLite)",
+  "source_of_truth": "migrations/0001_init.sql",
+  "date_rules": {
+    "instant": "…_at 칸은 UTC ISO-8601 문자열로 저장한다 (예: 2026-09-30T01:05:00.000Z). 화면에는 Asia/Seoul(UTC+9)로 바꿔 보여 준다.",
+    "input": "화면의 datetime-local 입력은 서울 시각으로 보고 +09:00을 붙여 UTC로 바꿔 보낸다.",
+    "date": "start_date, end_date, due_date, period_from, period_to는 서울 달력 기준 'YYYY-MM-DD' 문자열이다. 시각 변환을 하지 않는다.",
+    "today": "'오늘'은 서버에서 UTC 현재 시각 + 9시간의 날짜(서울 기준)로 정한다.",
+    "duration": "…_minutes 칸은 정수, 단위는 분이다. 저장·계산·표시 모두 분을 쓴다."
+  },
+  "tables": {
+    "plans": {
+      "role": "계획의 지금 값. 고쳐도 id는 그대로이고 current_rev만 오른다.",
+      "columns": {
+        "id": "INTEGER PK",
+        "title": "TEXT NOT NULL",
+        "start_date": "TEXT NOT NULL (date)",
+        "end_date": "TEXT NOT NULL (date, >= start_date)",
+        "priority": "INTEGER 1 높음 | 2 보통 | 3 낮음",
+        "success_criteria": "TEXT NOT NULL",
+        "estimated_minutes": "INTEGER >= 0 (분)",
+        "current_rev": "INTEGER — plan_revisions의 지금 판 번호",
+        "carried_from_review_id": "INTEGER UNIQUE NULL → reviews.id (돌아보기 한 건은 다음 계획 하나로만 넘어간다)",
+        "carried_note": "TEXT NULL — 넘겨받은 고칠 점",
+        "created_at": "TEXT (instant)",
+        "updated_at": "TEXT (instant)"
+      }
+    },
+    "plan_revisions": {
+      "role": "계획 수정 이력. rev_no 1이 처음 세운 계획. 쌓기만 하고 고치지 않는다.",
+      "columns": {
+        "id": "INTEGER PK",
+        "plan_id": "INTEGER → plans.id",
+        "rev_no": "INTEGER, UNIQUE(plan_id, rev_no)",
+        "title": "TEXT", "start_date": "TEXT (date)", "end_date": "TEXT (date)",
+        "priority": "INTEGER", "success_criteria": "TEXT", "estimated_minutes": "INTEGER (분)",
+        "change_note": "TEXT NULL — 고친 이유",
+        "created_at": "TEXT (instant)"
+      }
+    },
+    "tasks": {
+      "role": "계획에 딸린 할 일. 지우면 deleted_at만 채운다(소프트 삭제).",
+      "columns": {
+        "id": "INTEGER PK",
+        "plan_id": "INTEGER → plans.id",
+        "title": "TEXT NOT NULL",
+        "memo": "TEXT",
+        "due_date": "TEXT NULL (date)",
+        "priority": "INTEGER 1 | 2 | 3",
+        "estimated_minutes": "INTEGER NULL >= 0 (분)",
+        "status": "TEXT 'todo' | 'done'",
+        "completed_at": "TEXT NULL (instant)",
+        "reopen_count": "INTEGER — 되돌릴 때마다 +1, completions.cycle과 짝",
+        "deleted_at": "TEXT NULL (instant)",
+        "created_at": "TEXT (instant)", "updated_at": "TEXT (instant)"
+      }
+    },
+    "task_tags": {
+      "role": "할 일 태그",
+      "columns": { "task_id": "INTEGER → tasks.id", "tag": "TEXT" },
+      "keys": "PRIMARY KEY(task_id, tag)"
+    },
+    "completions": {
+      "role": "완료 기록. 되돌리면 reverted_at이 채워진다.",
+      "columns": {
+        "id": "INTEGER PK",
+        "task_id": "INTEGER → tasks.id",
+        "cycle": "INTEGER — 완료할 때의 tasks.reopen_count",
+        "idem_key": "TEXT UNIQUE — 요청의 Idempotency-Key",
+        "completed_at": "TEXT (instant)",
+        "reverted_at": "TEXT NULL (instant)"
+      },
+      "keys": "UNIQUE(task_id, cycle), UNIQUE(idem_key) — 같은 완료를 두 번 눌러도 한 건"
+    },
+    "executions": {
+      "role": "실제로 한 일(실행 기록). 계획·할 일의 값을 바꾸지 않는다.",
+      "columns": {
+        "id": "INTEGER PK",
+        "task_id": "INTEGER → tasks.id",
+        "started_at": "TEXT (instant)",
+        "ended_at": "TEXT (instant, >= started_at)",
+        "actual_minutes": "INTEGER >= 0 (분). 비우면 ended_at − started_at으로 계산",
+        "blocker": "TEXT — 막혔던 이유, 없으면 ''",
+        "note": "TEXT",
+        "created_at": "TEXT (instant)"
+      }
+    },
+    "reviews": {
+      "role": "돌아보기. 저장 순간의 집계와 다음 계획으로 넘길 고칠 점 한 줄.",
+      "columns": {
+        "id": "INTEGER PK",
+        "plan_id": "INTEGER → plans.id",
+        "period_from": "TEXT NULL (date)", "period_to": "TEXT NULL (date)",
+        "snapshot_json": "TEXT — {counts, ids, today}",
+        "improvement": "TEXT NOT NULL",
+        "created_at": "TEXT (instant)"
+      }
+    }
+  },
+  "relations": [
+    "plans 1 — N plan_revisions",
+    "plans 1 — N tasks",
+    "tasks 1 — N task_tags",
+    "tasks 1 — N completions",
+    "tasks 1 — N executions",
+    "plans 1 — N reviews",
+    "reviews 1 — 0..1 plans (carried_from_review_id, 다음 계획)"
+  ],
+  "review_rules": {
+    "scope": "plan_id가 같고 deleted_at IS NULL인 할 일. 기간을 주면 due_date가 그 안에 있는 할 일만(마감일 없는 할 일은 빠짐).",
+    "planned": "scope 할 일 수",
+    "done": "scope 중 status = 'done'",
+    "late": "scope 중 status <> 'done' AND due_date < 서울 오늘",
+    "blocked": "scope 중 blocker가 빈칸이 아닌 실행 기록이 하나라도 있는 할 일 수",
+    "estimated_minutes": "scope 할 일 estimated_minutes 합 (NULL은 0)",
+    "actual_minutes": "scope 할 일의 실행 기록 actual_minutes 합",
+    "diff_minutes": "actual_minutes − estimated_minutes, 아무것도 없으면 0"
+  },
+  "task_sorts": {
+    "due": "due_date IS NULL, due_date ASC, priority ASC, id ASC",
+    "priority": "priority ASC, due_date IS NULL, due_date ASC, id ASC",
+    "estimate": "estimated_minutes IS NULL, estimated_minutes DESC, id ASC",
+    "created": "id DESC"
+  }
+}
