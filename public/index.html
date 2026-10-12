@@ -10,13 +10,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&amp;family=Noto+Sans+KR:wght@400;500;600;700&amp;family=Gaegu:wght@700&amp;family=IBM+Plex+Mono:wght@500;600&amp;display=swap">
   <link rel="stylesheet" href="/style.css">
+  <script src="/pages.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
   <div class="notice" role="note" id="public-notice">
     <div class="wrap">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 7.5-2"></path></svg>
-      <p><strong>공개 안내</strong>지금은 로그인이 없어 링크를 아는 사람은 누구나 볼 수 있습니다. 남이 봐도 괜찮은 내용만 넣으세요</p>
+      <p><strong>잠긴 다이어리</strong>로그인한 사람만 자기 자료를 볼 수 있습니다. 비밀번호는 되돌릴 수 없는 값으로 바꿔 보관합니다.</p>
     </div>
   </div>
 
@@ -26,13 +27,7 @@
         <span class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M5 17a3 3 0 0 1 3-3h11"></path></svg></span>
         <span class="wordmark"><b>플랜두씨 다이어리</b><small>PLAN · DO · SEE</small></span>
       </a>
-      <nav class="top-nav">
-        <a class="navlink" href="#/">계획 목록</a>
-        <a class="btn" href="/api/export" download>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
-          내 자료 내보내기
-        </a>
-      </nav>
+      <nav class="top-nav" id="nav" aria-label="주 메뉴"></nav>
     </div>
   </header>
 

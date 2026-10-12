@@ -4,12 +4,23 @@ const B = process.env.BASE || 'http://127.0.0.1:8787';
 if (!/^http:\/\/(127\.0\.0\.1|localhost)/.test(B)) { console.error('로컬 서버에만 돌리세요.'); process.exit(1); }
 let fails = 0;
 const ok = (cond, name, extra = '') => { console.log(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`); if (!cond) fails++; };
+let COOKIE = '';
 async function api(m, p, body, headers = {}) {
-  const r = await fetch(B + '/api' + p, { method: m, headers: { 'content-type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
+  const r = await fetch(B + '/api' + p, {
+    method: m,
+    headers: { 'content-type': 'application/json', origin: B, cookie: COOKIE, ...headers },
+    body: body && JSON.stringify(body),
+  });
+  const sc = r.headers.get('set-cookie');
+  if (sc) COOKIE = sc.split(';')[0];
   const t = await r.text();
   let j; try { j = JSON.parse(t); } catch { j = t; }
   return { s: r.status, j, h: r.headers };
 }
+// 7번부터는 로그인해야 자료를 쓸 수 있다: 점검용 계정을 하나 만든다(비밀번호는 무작위, 출력하지 않음).
+const PW = crypto.randomUUID();
+const signed = await api('POST', '/auth/signup', { username: `chk_${Date.now().toString(36)}`, password: PW });
+if (signed.s !== 201) { console.error('가입 실패', signed.s, signed.j); process.exit(1); }
 const day = (n) => new Date(Date.now() + 9 * 3600e3 + n * 86400e3).toISOString().slice(0, 10);
 const today = day(0), yest = day(-1), soon = day(5);
 
@@ -107,7 +118,7 @@ const npd = (await api('GET', `/plans/${np.id}`)).j;
 ok(npd.plan.carried_note === '마감을 주말 오전으로' && npd.carried_from.id === sr.id, 'C33 고칠 점 넘어감');
 ok((await api('POST', '/plans', { ...plan, carried_from_review_id: sr.id })).s === 409, 'C33 한 건은 한 번만');
 
-const exp = await fetch(B + '/api/export');
+const exp = await fetch(B + '/api/export', { headers: { cookie: COOKIE } });
 const ej = await exp.json();
 ok(exp.headers.get('content-disposition').includes('attachment') && ej.tables.executions.length >= 3, 'C36 내보내기');
 const xs = (await api('GET', `/tasks/${t5}`)).j.task;
@@ -115,7 +126,7 @@ ok(xs.title === '<script>alert(1)</script>' && xs.memo === '<img src=x onerror=a
 ok((await api('POST', '/plans', 'not-json')).s === 400, '잘못된 입력 400');
 const home = await fetch(B + '/');
 const html = await home.text();
-ok(html.includes('지금은 로그인이 없어 링크를 아는 사람은 누구나 볼 수 있습니다. 남이 봐도 괜찮은 내용만 넣으세요'), 'C82 공개 안내');
+ok(html.includes('잠긴 다이어리'), '첫 화면 안내(7번: 잠긴 다이어리)');
 ok((home.headers.get('content-security-policy') || '').includes("script-src 'self'"), 'CSP 헤더');
 
 console.log(fails ? `\n${fails} FAIL` : '\nALL PASS');

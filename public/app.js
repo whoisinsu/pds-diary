@@ -85,8 +85,99 @@ async function api(method, path, data, headers = {}) {
     throw new Error('서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.');
   }
   const out = await res.json().catch(() => ({}));
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    // 세션이 끝났거나 끊겼다: 자료 대신 로그인 화면을 보인다.
+    ME = null;
+    renderNav();
+    authPage('login', '로그인이 끝났습니다. 다시 로그인해 주세요.');
+    throw new Error('로그인이 필요합니다.');
+  }
   if (!res.ok) throw new Error(out.error || `요청이 실패했습니다 (${res.status}).`);
   return out;
+}
+
+// ---------- 로그인 상태 ----------
+
+let ME; // undefined = 아직 모름, null = 로그인 안 됨, { id, username } = 로그인됨
+
+async function loadMe() {
+  try {
+    const out = await api('GET', '/auth/me');
+    ME = out.user;
+  } catch {
+    ME = null;
+  }
+  renderNav();
+}
+
+function renderNav() {
+  const nav = document.getElementById('nav');
+  if (!ME) {
+    nav.replaceChildren(
+      h('a', { class: 'navlink', href: '#/login', text: '로그인' }),
+      h('a', { class: 'btn', href: '#/signup', text: '가입하기' }));
+    return;
+  }
+  nav.replaceChildren(
+    h('a', { class: 'navlink', href: '#/', text: '계획 목록' }),
+    h('a', { class: 'navlink', href: '#/log', text: '5일 기록' }),
+    h('a', { class: 'navlink', href: '#/account', text: `${ME.username} 님` }),
+    h('button', { type: 'button', onclick: logout, text: '로그아웃' }));
+}
+
+async function logout() {
+  try { await api('POST', '/auth/logout'); } catch { /* 이미 끊긴 세션이어도 화면은 로그아웃 */ }
+  ME = null;
+  renderNav();
+  flash('로그아웃했습니다. 이 브라우저의 세션은 서버에서도 끊겼습니다.');
+  location.hash = '#/login';
+  router();
+}
+
+function authPage(mode, notice) {
+  const signup = mode === 'signup';
+  const pwIn = h('input', { name: 'password', type: 'password', required: true, minLength: signup ? 10 : 1, maxLength: 128,
+    autocomplete: signup ? 'new-password' : 'current-password' });
+  const msg = h('p', { class: 'error', role: 'alert' });
+  const f = h('form', { class: 'grid' },
+    h('label', { class: 'full' }, h('span', {}, '아이디 ', signup && h('span', { class: 'hint', text: '영문 소문자·숫자·밑줄 3~20자. 이메일·실명은 받지 않습니다.' })),
+      h('input', { name: 'username', required: true, maxLength: 20, autocomplete: 'username', autocapitalize: 'none', spellcheck: false })),
+    h('label', { class: 'full' }, h('span', {}, '비밀번호 ', signup && h('span', { class: 'hint', text: '10자 이상, 아이디를 넣지 마세요.' })), pwIn),
+    signup && h('label', { class: 'full' }, '비밀번호 확인', h('input', { name: 'password2', type: 'password', required: true, autocomplete: 'new-password' })),
+    h('div', { class: 'full row' }, h('button', { class: 'primary', type: 'submit', text: signup ? '가입하고 시작하기' : '로그인' })),
+    msg);
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    msg.textContent = '';
+    if (signup && d.password !== d.password2) { msg.textContent = '두 비밀번호가 다릅니다.'; return; }
+    const btn = f.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const out = await api('POST', signup ? '/auth/signup' : '/auth/login', { username: d.username, password: d.password });
+      ME = out.user;
+      renderNav();
+      flash(signup ? `${ME.username} 님, 가입했습니다.` : `${ME.username} 님, 반갑습니다.`);
+      if (/^#\/(login|signup)?$/.test(location.hash) || !location.hash) location.hash = '#/';
+      router();
+    } catch (err) {
+      msg.textContent = err.message;
+      pwIn.value = '';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  render(
+    h('section', { class: 'hero' },
+      h('span', { class: 'stamp', text: stampFmt.format(new Date()) }),
+      h('h1', {}, h('span', { class: 'hl', text: signup ? '가입하기' : '로그인' })),
+      h('p', { text: '계획(Plan) → 실제로 한 일(Do) → 돌아보기(See)를 잇는 다이어리입니다. 내 자료는 로그인한 뒤에만 보입니다.' })),
+    notice && h('p', { class: 'flash', text: notice }),
+    h('div', { class: 'auth-wrap' },
+      h('section', { class: 'card tape lift' }, f),
+      h('p', { class: 'small' },
+        signup ? '이미 계정이 있나요? ' : '처음인가요? ',
+        h('a', { href: signup ? '#/login' : '#/signup', text: signup ? '로그인' : '가입하기' }))));
 }
 
 // ---------- 날짜·시간 ----------
@@ -137,8 +228,13 @@ function setQuery(query) {
 async function router() {
   const { parts, query } = parseHash();
   const [a, b, c] = parts;
+  if (ME === undefined) await loadMe();
+  // 로그인하지 않았으면 어떤 주소로 와도 자료 대신 로그인(또는 가입) 화면을 보인다.
+  if (!ME) return authPage(a === 'signup' ? 'signup' : 'login');
   try {
-    if (!a) return await homePage();
+    if (!a || a === 'login' || a === 'signup') return await homePage();
+    if (a === 'log') return await experimentPage();
+    if (a === 'account') return accountPage();
     if (a === 'new-plan') return await newPlanPage(query);
     if (a === 'plan' && b) return await planPage(Number(b), query);
     if (a === 'task' && b) return await taskPage(Number(b));
@@ -146,6 +242,7 @@ async function router() {
     if (a === 'review' && b) return await reviewPage(Number(b), query);
     render(h('p', { class: 'error', text: '없는 화면입니다.' }), h('a', { href: '#/', text: '처음으로' }));
   } catch (err) {
+    if (!ME) return; // 세션이 끊겨 api()가 이미 로그인 화면을 그렸다
     render(h('div', { class: 'card' },
       h('p', { class: 'error', text: err.message }),
       h('a', { href: '#/', text: '계획 목록으로' })));

@@ -1,44 +1,41 @@
-# 플랜두씨 다이어리 1 — 내 계획과 실제를 담는 앱
+# 플랜두씨 다이어리 2 — 인증을 붙인 계획·실행·돌아보기 앱
 
-계획(Plan) → 실제로 한 일(Do) → 돌아보기(See)가 하나로 이어지는 다이어리입니다.
+계획(Plan) → 실제로 한 일(Do) → 돌아보기(See)가 하나로 이어지는 다이어리에, 가입·로그인을 붙여 내 자료를 나만 보게 했습니다.
 
-> **공개 안내** — 지금은 로그인이 없어 링크를 아는 사람은 누구나 볼 수 있습니다. 남이 봐도 괜찮은 내용만 넣으세요. 잠그는 일은 7번 과제에서 합니다.
-
-- 결과물: https://pds-diary.plandosee-diary.workers.dev
+- 결과물: https://pds-diary.plandosee-diary.workers.dev (첫 화면 = 로그인 화면, 계정 없이 열림)
 - 소스: https://github.com/whoisinsu/pds-diary
+- 이어서 쓴 6번 결과: 커밋 [`03ac8da`](https://github.com/whoisinsu/pds-diary/commit/03ac8dae3008580a01a37a981b99b2fed838d25f) — 같은 주소·같은 DB를 잠갔고, 6번 커밋은 7번 커밋들의 조상입니다.
+- **인증 구현 설명서: [docs/auth.md](docs/auth.md)** · 배포본 확인 기록: [docs/evidence-live.md](docs/evidence-live.md)
 
 ## 구조
 
 | 부분 | 쓰는 것 |
 |---|---|
 | 화면 | `public/` — HTML·CSS·JS만 씀(빌드 없음), 사용자 글은 `textContent`로만 넣음 |
-| API | `src/worker.js` — Cloudflare Worker, `/api/*` |
-| DB | Cloudflare D1(SQLite) — `migrations/0001_init.sql` |
-| 계약 | `contracts/pds-schema-v2.json` — 표·항목·관계·날짜 규칙 |
-| 점검 | `tests/check.mjs` — 통과 기준 점검(로컬 서버 전용: `node tests/check.mjs`) |
+| API 입구 | `src/worker.js` — Origin 확인 → 세션 확인 → 로그인 필요 → 각 기능 |
+| 인증 | `src/auth.js` — PBKDF2-SHA256(Web Crypto) 비밀번호, 서버 세션(쿠키 `__Host-pds_session`) |
+| 다이어리 | `src/diary.js` — 계획·할 일·완료·실행 기록·돌아보기, 모든 쿼리에 주인 조건 |
+| 5일 기록 | `src/experiment.js` — 1일차 고정, 하루 한 번, 2일차 뒤·3일차 앞 규칙 변경 |
+| DB | Cloudflare D1(SQLite) — `migrations/0001_init.sql`, `migrations/0002_auth.sql` |
+| 점검 | `tests/check.mjs`(6번 기능), `tests/auth-check.mjs`(7번 인증·5일 기록, `--evidence`로 확인 기록 생성) |
 
-- 계획을 고치면 `plans`의 지금 값이 바뀌고, 바뀐 내용이 `plan_revisions`에 새 판으로 쌓입니다. 1판(처음 세운 계획)은 남아 있습니다.
-- 완료는 `Idempotency-Key` 헤더와 `completions`의 `UNIQUE(task_id, cycle)` 제약으로 한 번만 기록됩니다. 버튼 잠금에만 기대지 않습니다.
-- 실행 기록은 `executions`에만 들어가고 계획과 할 일의 예상 값은 건드리지 않습니다.
-- 거르기와 정렬은 서버 SQL에서 합니다. 값이 같으면 항상 할 일 ID로 순서를 정합니다.
-- 코드에는 비밀키가 없습니다. D1은 Worker 바인딩(`env.DB`)으로 붙고, `database_id`는 비밀키가 아닙니다.
+비밀키: 코드·설정·Git 기록 어디에도 없습니다. 세션은 서명하지 않는 무작위 값이고, DB에는 그 해시만 저장합니다. `wrangler.toml`의 `database_id`는 접근 권한이 없는 이름표입니다.
 
 ## 배포
 
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create pds-diary        # 출력된 database_id를 wrangler.toml에 넣기
-npm run db:migrate:remote
-npm run deploy
+npx wrangler d1 migrations apply pds-diary --remote
+npx wrangler deploy
 ```
 
 ## 짧은 확인 방법
 
-1. **어디로 가나요** — 결과물 주소를 새 시크릿 창으로 엽니다.
-2. **세 단계 안에 무엇을 하나요** — ① 계획을 눌러 할 일에서 `완료`를 누릅니다 → ② 할 일 화면에서 `점검: 완료 요청을 연달아 두 번 보내 보기`를 실행합니다 → ③ `돌아보기`에서 숫자 하나를 누릅니다.
-3. **무엇이 보이면 통과인가요** — 첫 화면의 공개 안내, "기록 1건, 집계 1만 늘었습니다", 그 숫자가 나온 할 일·실행 기록 목록이 보입니다.
-4. **안 될 때는 무엇이 보이나요** — 빨간 글씨 오류 문구(예: "서버에 연결하지 못했습니다")가 보이거나, 목록이 비어 "아직 계획이 없습니다"가 보입니다.
+1. **어디로 가나요** — https://pds-diary.plandosee-diary.workers.dev 를 새 시크릿 창으로 엽니다.
+2. **세 단계 안에 무엇을 하나요** — ① 주소 끝에 `#/plan/1`을 붙여 열어 봅니다 → ② **가입하기**로 새 계정을 만듭니다 → ③ 오른쪽 위 **로그아웃**을 누른 뒤 뒤로 가기로 자료 화면을 다시 엽니다.
+3. **무엇이 보이면 통과인가요** — ①과 ③에서 자료 대신 **로그인 화면**이 나오고, ②에서는 빈 "내 계획" 목록(남의 계획이 하나도 없음)이 보입니다.
+4. **안 될 때는 무엇이 보이나요** — 로그인하지 않았는데 계획 목록이나 할 일이 보이거나, 가입 직후 목록에 다른 사람의 계획이 섞여 있습니다. 서버 오류면 빨간 글씨로 "서버에서 처리하지 못했습니다"가 뜹니다.
 
 ## AI와 내 판단
 
